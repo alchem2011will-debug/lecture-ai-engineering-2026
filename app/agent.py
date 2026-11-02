@@ -24,6 +24,7 @@ from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai import DeferredToolRequests #宿題パーツで追加
 
 from app import tools
 from app.config import MODEL, api_error_message, get_api_key
@@ -38,9 +39,16 @@ INSTRUCTIONS = """\
 """
 
 # モデルは実行時に渡す（テストではAPIを呼ばない TestModel に差し替えるため）
-agent = Agent(instructions=INSTRUCTIONS)
+#agent = Agent(instructions=INSTRUCTIONS)
+agent = Agent(
+    instructions=INSTRUCTIONS,
+    output_type=[str, DeferredToolRequests],
+) #宿題パーツで追加
+
 agent.tool_plain(tools.search_glossary)
 agent.tool_plain(tools.get_lecture_summary)
+agent.tool_plain(tools.make_quiz) #演習パーツで追加
+agent.tool_plain(requires_approval=True)(tools.save_learning_log) #宿題パーツでログ追加
 
 # TODO(第3回 演習): tools.py に make_quiz を作り、ここで登録しよう
 
@@ -132,6 +140,27 @@ def main() -> None:
     except ModelHTTPError as e:
         print(api_error_message(e.status_code, str(e.body)[:200]))
         raise SystemExit(1)
+    
+    #宿題パーツで追加: ツール呼び出しの承認が必要な場合、ユーザーに確認して結果を再実行する
+    if isinstance(result.output, DeferredToolRequests):
+        requests = result.output
+        approvals = {}
+
+        for call in requests.approvals:
+            print(f"\n承認が必要な操作: {call.tool_name}")
+            print(f"保存内容: {call.args}")
+
+            answer = input("この操作を承認しますか？ (y/n): ").strip().lower()
+            approvals[call.tool_call_id] = answer in ("y", "yes")
+
+        deferred_results = requests.build_results(approvals=approvals)
+
+        result = target.run_sync(
+            message_history=result.all_messages(),
+            deferred_tool_results=deferred_results,
+            model=build_model(),
+        )
+
     print(result.output)
     if args.trace:
         print_trace(result)
