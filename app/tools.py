@@ -77,3 +77,50 @@ def get_lecture_summary(lecture: int) -> str:
         available = sorted(p.stem for p in (DATA_DIR / "lectures").glob("*.md"))
         return f"第{lecture}回の要点はまだありません。用意されている回: {', '.join(available)}"
     return path.read_text(encoding="utf-8")
+
+def make_quiz(lecture: int) -> str:
+#    """指定した回の講義内容から確認問題を1問作る。
+
+#    ユーザーが講義内容についてクイズや確認問題を求めたときに使う。
+#    lecture には対象の講義回を指定する（例: 2）。
+#    """
+
+    """指定した回の講義内容から確認問題を1問作る。
+
+    ユーザーが講義の理解度を確認したい場合や、
+    講義内容についてクイズ・確認問題を求めた場合に使う。
+    lecture には対象の講義回を整数で指定する（例: 2）。
+    """
+
+    entries = [
+        e for e in load_glossary()
+        if e["lecture"] == lecture
+    ]
+
+    if not entries:
+        return f"第{lecture}回の用語が見つかりませんでした。"
+
+    entry = entries[0]
+    return (
+        f"【第{lecture}回の確認問題】\n"
+        f"問題：{entry['term']}とは何ですか？\n"
+        f"答え：{entry['definition']}"
+    )
+
+def save_learning_log(content: str) -> str:
+    """ユーザーの学習内容や振り返りを学習ログとして保存する。
+
+    ユーザーが学習記録を残したい場合に使う。
+    content には保存する学習内容を指定する。
+    保存先は learning_log/ フォルダ。
+    """
+    from datetime import datetime
+
+    log_dir = Path(__file__).resolve().parent.parent / "learning_log"
+    log_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = log_dir / f"{timestamp}.md"
+    path.write_text(content, encoding="utf-8")
+
+    return f"学習ログを保存しました: {path}"
