@@ -212,7 +212,6 @@ def main() -> None:
         if not args.question:
             parser.error("質問を指定してください")
 
-    with mode:
         print(f"[model] {MODEL}")
         if args.mcp:
             print("[tools] MCP サーバー（app/mcp_servers.json）")

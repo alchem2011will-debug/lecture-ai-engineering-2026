@@ -124,10 +124,24 @@ def open_index(path: Path):
         db.close()
 
 
+#def search(query: str) -> list[dict]:
+#    """質問を埋め込み、近いページを最大RAG_TOP_K件返す。"""
+#    if not isinstance(query, str) or not query.strip():
+#        raise ValueError("検索語が空です。")
+#    with open_index(RAG_DB) as db:
+#        vector = embed_text(query.strip(), "RETRIEVAL_QUERY")
+#        rows = db.execute("""
+#            SELECT page_id, document_id, lecture, document_title, section, title, page, content,
+#                   vec_distance_cosine(embedding, ?) AS distance
+#            FROM chunks ORDER BY distance, page_id LIMIT ?
+#        """, (sqlite_vec.serialize_float32(vector), RAG_TOP_K))
+#        return [dict(row) for row in rows]
+
 def search(query: str) -> list[dict]:
-    """質問を埋め込み、近いページを最大RAG_TOP_K件返す。"""
+    """質問を埋め込み、近いページとその前後ページを返す。"""
     if not isinstance(query, str) or not query.strip():
         raise ValueError("検索語が空です。")
+
     with open_index(RAG_DB) as db:
         vector = embed_text(query.strip(), "RETRIEVAL_QUERY")
         rows = db.execute("""
@@ -135,8 +149,41 @@ def search(query: str) -> list[dict]:
                    vec_distance_cosine(embedding, ?) AS distance
             FROM chunks ORDER BY distance, page_id LIMIT ?
         """, (sqlite_vec.serialize_float32(vector), RAG_TOP_K))
-        return [dict(row) for row in rows]
+        hits = [dict(row) for row in rows]
 
+    # 資料ごとにページをまとめる
+    pages_by_document = defaultdict(list)
+    for page in load_pages(RAG_SOURCE):
+        pages_by_document[page["document_id"]].append(page)
+
+    results = []
+    seen = set()
+
+    for hit in hits:
+        # ベクトル検索で見つかったページを追加
+        if hit["page_id"] not in seen:
+            results.append(hit)
+            seen.add(hit["page_id"])
+
+        # 同じ資料内の前後ページを追加
+        document_pages = pages_by_document.get(hit["document_id"], [])
+        position = next(
+            (i for i, page in enumerate(document_pages)
+             if page["page_id"] == hit["page_id"]),
+            None,
+        )
+
+        if position is None:
+            continue
+
+        for neighbor_position in (position - 1, position + 1):
+            if 0 <= neighbor_position < len(document_pages):
+                neighbor = document_pages[neighbor_position]
+                if neighbor["page_id"] not in seen:
+                    results.append(neighbor)
+                    seen.add(neighbor["page_id"])
+
+    return results
 
 def search_graph(query: str) -> dict:
     """ベクトル検索を入口に、前後ページと共通用語で候補を広げる。"""
